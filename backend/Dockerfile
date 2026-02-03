@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:20-slim
 
 # Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,9 +11,8 @@ COPY package*.json ./
 # Install ALL dependencies (including dev for build)
 RUN npm ci
 
-# Copy prisma schema and generate client with correct binary
+# Copy prisma schema and generate client
 COPY prisma ./prisma/
-ENV PRISMA_CLI_BINARY_TARGETS=linux-musl-openssl-3.0.x
 RUN npx prisma generate
 
 # Copy source code
