@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS ====================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  googleConnection    GoogleClassroomConnection?
+  classSchedules      ClassSchedule[]
+  gymSchedules        GymSchedule[]
+  propedeuticoSchedules PropedeuticoSchedule[]
+  tasks               Task[]
+  courses             Course[]
+  notificationPrefs   NotificationPreference?
+  pushTokens          PushToken[]
+
+  @@map("users")
+}
+
+// ==================== GOOGLE CLASSROOM ====================
+
+model GoogleClassroomConnection {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // OAuth tokens
+  accessToken   String
+  refreshToken  String
+  tokenExpiry   DateTime
+  
+  // Alternative: just email for schools with blocked OAuth
+  googleEmail   String?
+  
+  // Sync status
+  lastSyncAt    DateTime?
+  syncEnabled   Boolean  @default(true)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("google_classroom_connections")
+}
+
+model Course {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Google Classroom data
+  googleCourseId  String
+  name            String
+  section         String?
+  description     String?
+  teacherName     String?
+  
+  // Sync settings
+  syncEnabled     Boolean  @default(true)
+  color           String   @default("#4285F4")
+  
+  // Link to class schedule
+  classScheduleId String?
+  classSchedule   ClassSchedule? @relation(fields: [classScheduleId], references: [id])
+  
+  // Relations
+  tasks           Task[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, googleCourseId])
+  @@map("courses")
+}
+
+// ==================== SCHEDULES ====================
+
+model ClassSchedule {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String   // e.g., "Fundamentos de Matemáticas"
+  classroom   String?  // e.g., "Aula 101"
+  teacher     String?
+  
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime   String   // "08:00" format
+  endTime     String   // "10:00" format
+  
+  color       String   @default("#4285F4")
+  isActive    Boolean  @default(true)
+  
+  // Linked courses
+  courses     Course[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("class_schedules")
+}
+
+model GymSchedule {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String   @default("Gym")
+  location    String?
+  
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime   String   // "08:00" format
+  endTime     String   // "10:00" format
+  
+  color       String   @default("#34A853")
+  isActive    Boolean  @default(true)
+  
+  // Track skipped days
+  skippedDates String[] @default([]) // Array of "YYYY-MM-DD" dates
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("gym_schedules")
+}
+
+model PropedeuticoSchedule {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String   @default("Propedéutico")
+  location    String?
+  description String?
+  
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime   String   // "08:00" format
+  endTime     String   // "10:00" format
+  
+  color       String   @default("#FBBC04")
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("propedeutico_schedules")
+}
+
+// ==================== TASKS ====================
+
+model Task {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title           String
+  description     String?
+  
+  // Origin
+  isFromClassroom Boolean   @default(false)
+  googleTaskId    String?   // Classroom coursework ID
+  courseId        String?
+  course          Course?   @relation(fields: [courseId], references: [id])
+  
+  // Dates
+  dueDate         DateTime?
+  suggestedDate   DateTime? // AI suggested date to work on it
+  suggestedTime   String?   // AI suggested time slot
+  
+  // Status
+  status          TaskStatus @default(PENDING)
+  priority        TaskPriority @default(MEDIUM)
+  
+  // Notifications
+  notified24h     Boolean   @default(false)
+  notified1h      Boolean   @default(false)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, googleTaskId])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SUBMITTED // For Classroom tasks
+  LATE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ==================== NOTIFICATIONS ====================
+
+model NotificationPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Notification types
+  newTasksEnabled       Boolean  @default(true)
+  classRemindersEnabled Boolean  @default(true)
+  classReminderMinutes  Int      @default(15) // Minutes before class
+  gymRemindersEnabled   Boolean  @default(true)
+  propedeuticoEnabled   Boolean  @default(true)
+  taskDue24hEnabled     Boolean  @default(true)
+  taskDue1hEnabled      Boolean  @default(true)
+  
+  // Quiet hours
+  quietHoursEnabled     Boolean  @default(false)
+  quietHoursStart       String?  // "22:00"
+  quietHoursEnd         String?  // "07:00"
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("notification_preferences")
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  token     String   @unique // Expo push token
+  platform  String   // "ios" or "android"
+  isActive  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("push_tokens")
+}
